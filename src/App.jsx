@@ -57,63 +57,48 @@ function App() {
 
     try {
       const currentY = new Date().getFullYear();
-      const yearsNeeded = Array.from({ length: 12 }, (_, i) => currentY - i);
+      
+      // Construct a single, High-Density batched GraphQL query
+      let query = 'query($login: String!) {\n';
+      for (let i = 0; i < 12; i++) {
+        const year = currentY - i;
+        const from = `${year}-01-01T00:00:00Z`;
+        const to = `${year}-12-31T23:59:59Z`;
+        query += `  y${i}: user(login: $login) { contributionsCollection(from: "${from}", to: "${to}") { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } }\n`;
+      }
+      query += '}';
 
-      const fetchYear = async (year) => {
-        const fromDate = `${year}-01-01T00:00:00Z`;
-        const toDate = `${year}-12-31T23:59:59Z`;
-        const query = `
-          query($login: String!, $from: DateTime!, $to: DateTime!) {
-            user(login: $login) {
-              contributionsCollection(from: $from, to: $to) {
-                contributionCalendar {
-                  totalContributions
-                  weeks {
-                    contributionDays {
-                      date
-                      contributionCount
-                    }
-                  }
-                }
-              }
-            }
-          }
-        `;
-        
-        // Construct Endpoint
-        const targetUrl = useDirectFetch ? "https://api.github.com/graphql" : `${PROXY_BASE}/graphql`;
-        const headers = { "Content-Type": "application/json" };
-        if (useDirectFetch) {
-          headers["Authorization"] = `bearer ${localToken}`;
+      const targetUrl = useDirectFetch ? "https://api.github.com/graphql" : `${PROXY_BASE}/graphql`;
+      const headers = { "Content-Type": "application/json" };
+      if (useDirectFetch) headers["Authorization"] = `bearer ${localToken}`;
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ query, variables: { login: user } }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) throw new Error('Invalid or Expired GitHub Token');
+        if (response.status === 404) throw new Error('GitHub User not found');
+        throw new Error(`Fetch failed: ${response.status}`);
+      }
+
+      const res = await response.json();
+      if (res.errors) throw new Error(res.errors[0].message);
+      
+      // Efficiently aggregate the aliased results
+      let allDays = [];
+      for (let i = 0; i < 12; i++) {
+        const yearData = res.data[`y${i}`];
+        if (yearData && yearData.contributionsCollection) {
+          allDays.push(...yearData.contributionsCollection.contributionCalendar.weeks.flatMap(w => w.contributionDays));
         }
+      }
 
-        const response = await fetch(targetUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            query,
-            variables: { login: user, from: fromDate, to: toDate },
-          }),
-        });
+      if (allDays.length === 0) throw new Error('Target profile not identified or has no history');
 
-        if (!response.ok) {
-          if (response.status === 401) throw new Error('Invalid or Expired GitHub Token');
-          if (response.status === 404) throw new Error('GitHub User not found');
-          throw new Error(`Fetch failed: ${response.status}`);
-        }
-
-        const res = await response.json();
-        if (res.errors) throw new Error(res.errors[0].message);
-        if (!res.data || !res.data.user) throw new Error('Target profile not identified');
-
-        return res.data.user.contributionsCollection.contributionCalendar.weeks
-          .flatMap(w => w.contributionDays);
-      };
-
-      const results = await Promise.all(yearsNeeded.map(y => fetchYear(y)));
-      let allDays = results.flat();
-
-      // Live Patch Section
+      // Real-Time Patch Section
       try {
         const eventsUrl = useDirectFetch 
           ? `https://api.github.com/users/${user}/events/public?per_page=30` 
