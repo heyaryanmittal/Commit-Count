@@ -423,6 +423,35 @@ body::before {
   }
 }
 
+/* Handle PDF capture clarity */
+#results-printable.pdf-export-mode {
+  background-color: #24021d !important;
+  background-image: none !important; /* Disable radial gradients which can glitch in canvas capture */
+}
+
+.pdf-export-mode .data-card, 
+.pdf-export-mode .detail-card, 
+.pdf-export-mode .filter-section {
+  backdrop-filter: none !important;
+  background: #3B032F !important; /* Solid version of the theme */
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.pdf-export-mode .title-main,
+.pdf-export-mode .filter-title {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: #ffffff !important;
+  color: #ffffff !important;
+  line-height: normal !important; /* Fix potential clipping from tight line-height */
+  letter-spacing: normal !important; /* Fix potential overlap from negative letter-spacing */
+}
+
+.pdf-export-mode .data-value {
+  color: #ffffff !important;
+}
+
 @media (max-width: 768px) {
   .title-main {
     font-size: 3.5rem;

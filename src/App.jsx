@@ -97,7 +97,7 @@ function App() {
           // Use Local date string YYYY-MM-DD
           const todayStr = new Date().toLocaleDateString('en-CA');
           let todayCommits = 0;
-          
+
           events.forEach(ev => {
             if (ev.type === 'PushEvent' && ev.created_at.includes(todayStr)) {
               todayCommits += (ev.payload.size || 0);
@@ -172,7 +172,7 @@ function App() {
         totalContributions,
         longestStreak,
         currentStreak,
-        currentStreakRange: currentStreak > 0 ? `${new Date(currentStreakStart).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})} - ${new Date(currentStreakEnd).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}` : 'No active streak',
+        currentStreakRange: currentStreak > 0 ? `${new Date(currentStreakStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(currentStreakEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'No active streak',
         bestDay: dayNames[bestDayIdx],
         dayDist,
         lastUpdated: new Date().toLocaleTimeString()
@@ -207,7 +207,7 @@ function App() {
         .filter(d => d.date >= sStr && d.date <= eStr)
         .reduce((sum, d) => sum + (d.contributionCount || 0), 0);
 
-      stats.push({ 
+      stats.push({
         total: yearTotal,
         range: `${start.toLocaleDateString(undefined, options)} - ${end.toLocaleDateString(undefined, options)}`
       });
@@ -225,7 +225,7 @@ function App() {
 
   const handleCustomSearch = () => {
     if (!fromDate || !toDate || !data) return;
-    
+
     // Exact string comparison for 100% precision
     const filteredDays = data.days.filter(d => d.date >= fromDate && d.date <= toDate);
 
@@ -241,55 +241,71 @@ function App() {
 
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleShare = async () => {
-    const shareData = {
-      title: 'GitHub Commit Analytics',
-      text: `Check out my GitHub contribution stats for ${username || 'me'}!`,
-      url: window.location.href
-    };
+  const generatePDFBlob = async () => {
+    const element = document.getElementById('results-printable');
+    if (!element) return null;
+
+    // Capture state
+    const originalScrollY = window.scrollY;
+    window.scrollTo(0, 0);
+    element.classList.add('pdf-export-mode');
+
+    // Ensure all critical fonts are ready before we snapshot the canvas
+    await document.fonts.ready;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
     try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else {
-        await navigator.clipboard.writeText(window.location.href);
-        alert('Link copied to clipboard!');
-      }
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#24021d',
+        logging: false,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+        scrollY: 0,
+        x: 0,
+        y: 0
+      });
+
+      element.classList.remove('pdf-export-mode');
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      
+      // Calculate dynamic dimensions for a perfect seamless document
+      const pdf = new jsPDF({
+        orientation: canvas.width > canvas.height ? 'l' : 'p',
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      window.scrollTo(0, originalScrollY);
+      return pdf.output('blob');
     } catch (err) {
-      console.error(err);
+      window.scrollTo(0, originalScrollY);
+      console.error("PDF generation failed:", err);
+      return null;
     }
   };
 
-  const handleExportPDF = async () => {
-    const element = document.getElementById('results-printable');
-    if (!element) return;
-    setIsGenerating(true);
 
-    try {
-       // Ensure smooth fonts and colors in the take
-       const canvas = await html2canvas(element, {
-         scale: 2,
-         useCORS: true,
-         backgroundColor: '#24021d',
-         logging: false
-       });
-       const imgData = canvas.toDataURL('image/png');
-       const pdf = new jsPDF('p', 'mm', 'a4');
-       const pdfWidth = pdf.internal.pageSize.getWidth();
-       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-       
-       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-       pdf.save(`${username || 'github'}-analytics.pdf`);
-    } catch (err) {
-       console.error("PDF generation failed:", err);
-       alert("Failed to generate PDF. Check console for details.");
-    } finally {
-       setIsGenerating(false);
+  const handleExportPDF = async () => {
+    setIsGenerating(true);
+    const blob = await generatePDFBlob();
+    if (blob) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${username || 'github'}-analytics.pdf`;
+      link.click();
+    } else {
+      alert("Failed to generate PDF.");
     }
+    setIsGenerating(false);
   };
 
   return (
     <div id="root">
-      <motion.div
+      <div id="results-printable" style={{ width: '100%', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <motion.div
         className="title-block"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -345,21 +361,20 @@ function App() {
         {data && !loading && (
           <motion.div
             key="results"
-            id="results-printable"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6 }}
             style={{ padding: '20px', borderRadius: '30px' }}
           >
             <div style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'center' }}>
-               <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.4rem 1rem', borderRadius: '50px', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                 <motion.div 
-                   animate={{ scale: [1, 1.25, 1], opacity: [0.6, 1, 0.6] }} 
-                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                   style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}
-                 />
-                 <span>Real-time records synchronized • Last check at {data.lastUpdated}</span>
-               </div>
+              <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.4rem 1rem', borderRadius: '50px', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <motion.div
+                  animate={{ scale: [1, 1.25, 1], opacity: [0.6, 1, 0.6] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                  style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}
+                />
+                <span>Real-time records synchronized • Last check at {data.lastUpdated}</span>
+              </div>
             </div>
 
             <div className="stats-container">
@@ -492,13 +507,7 @@ function App() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '2rem' }}>
           <p>© 2026 GitHub Commit Analytics. All rights reserved.</p>
           <div style={{ display: 'flex', gap: '2rem' }}>
-            <span 
-              onClick={handleShare}
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <Share2 size={16} /> Share
-            </span>
-            <span 
+            <span
               onClick={handleExportPDF}
               style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: isGenerating ? 0.6 : 1 }}
             >
@@ -507,7 +516,7 @@ function App() {
           </div>
         </div>
       </footer>
-
+      </div>
     </div>
   );
 }
