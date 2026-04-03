@@ -1,0 +1,5 @@
+/* App core styles moved to index.css for high-fidelity performance. */
+.app-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+}
