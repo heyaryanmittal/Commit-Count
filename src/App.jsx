@@ -58,75 +58,62 @@ function App() {
     try {
       const currentY = new Date().getFullYear();
       
-      // Construct a single, High-Density batched GraphQL query
-      let query = 'query($login: String!) {\n';
-      for (let i = 0; i < 12; i++) {
+      // STREAM 1: Years 0-5
+      let q1 = 'query($login: String!) {\n';
+      for (let i = 0; i < 6; i++) {
         const year = currentY - i;
-        const from = `${year}-01-01T00:00:00Z`;
-        const to = `${year}-12-31T23:59:59Z`;
-        query += `  y${i}: user(login: $login) { contributionsCollection(from: "${from}", to: "${to}") { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } }\n`;
+        const from = `${year}-01-01T00:00:00Z`, to = `${year}-12-31T23:59:59Z`;
+        q1 += `  y${i}: user(login: $login) { contributionsCollection(from: "${from}", to: "${to}") { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } }\n`;
       }
-      query += '}';
+      q1 += '}';
+
+      // STREAM 2: Years 6-11
+      let q2 = 'query($login: String!) {\n';
+      for (let i = 6; i < 12; i++) {
+        const year = currentY - i;
+        const from = `${year}-01-01T00:00:00Z`, to = `${year}-12-31T23:59:59Z`;
+        q2 += `  y${i}: user(login: $login) { contributionsCollection(from: "${from}", to: "${to}") { contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } }\n`;
+      }
+      q2 += '}';
 
       const targetUrl = useDirectFetch ? "https://api.github.com/graphql" : `${PROXY_BASE}/graphql`;
+      const eventsUrl = useDirectFetch ? `https://api.github.com/users/${user}/events/public?per_page=30` : `${PROXY_BASE}/users/${user}/events/public?per_page=30`;
       const headers = { "Content-Type": "application/json" };
       if (useDirectFetch) headers["Authorization"] = `bearer ${localToken}`;
 
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, variables: { login: user } }),
-      });
+      // LAUNCH ALL STREAMS CONCURRENTLY
+      const [res1, res2, eventRes] = await Promise.all([
+        fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify({ query: q1, variables: { login: user } }) }),
+        fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify({ query: q2, variables: { login: user } }) }),
+        fetch(eventsUrl, { headers: useDirectFetch ? { "Authorization": `bearer ${localToken}` } : {} })
+      ]);
 
-      if (!response.ok) {
-        if (response.status === 401) throw new Error('Invalid or Expired GitHub Token');
-        if (response.status === 404) throw new Error('GitHub User not found');
-        throw new Error(`Fetch failed: ${response.status}`);
-      }
+      if (!res1.ok || !res2.ok) throw new Error('Infrastructure throttle or user not found');
 
-      const res = await response.json();
-      if (res.errors) throw new Error(res.errors[0].message);
-      
-      // Efficiently aggregate the aliased results
+      const [data1, data2, events] = await Promise.all([res1.json(), res2.json(), eventRes.ok ? eventRes.json() : []]);
+      if (data1.errors || data2.errors) throw new Error('Validation failure or profile protected');
+
+      // FAST AGGREGATION
       let allDays = [];
-      for (let i = 0; i < 12; i++) {
-        const yearData = res.data[`y${i}`];
-        if (yearData && yearData.contributionsCollection) {
-          allDays.push(...yearData.contributionsCollection.contributionCalendar.weeks.flatMap(w => w.contributionDays));
+      const aggregate = (payload, start, count) => {
+        for (let i = start; i < start + count; i++) {
+          const year = payload.data[`y${i}`];
+          if (year?.contributionsCollection) allDays.push(...year.contributionsCollection.contributionCalendar.weeks.flatMap(w => w.contributionDays));
         }
-      }
+      };
+      aggregate(data1, 0, 6);
+      aggregate(data2, 6, 6);
 
-      if (allDays.length === 0) throw new Error('Target profile not identified or has no history');
+      if (allDays.length === 0) throw new Error('No public history identified');
 
-      // Real-Time Patch Section
-      try {
-        const eventsUrl = useDirectFetch 
-          ? `https://api.github.com/users/${user}/events/public?per_page=30` 
-          : `${PROXY_BASE}/users/${user}/events/public?per_page=30`;
-        
-        const eventsHeaders = useDirectFetch ? { "Authorization": `bearer ${localToken}` } : {};
-        const eventsRes = await fetch(eventsUrl, { headers: eventsHeaders });
-        
-        if (eventsRes.ok) {
-          const events = await eventsRes.json();
-          const todayStr = new Date().toLocaleDateString('en-CA');
-          let todayCommits = 0;
-
-          events.forEach(ev => {
-            if (ev.type === 'PushEvent' && ev.created_at.includes(todayStr)) {
-              todayCommits += (ev.payload.size || 0);
-            }
-          });
-
-          const todayIdx = allDays.findIndex(d => d.date === todayStr);
-          if (todayIdx !== -1) {
-            allDays[todayIdx].contributionCount = Math.max(allDays[todayIdx].contributionCount, todayCommits);
-          } else if (todayCommits > 0) {
-            allDays.push({ date: todayStr, contributionCount: todayCommits });
-          }
-        }
-      } catch (e) {
-        console.warn("Live patch inhibited", e);
+      // FAST LIVE PATCH
+      if (Array.isArray(events)) {
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        let todayVal = 0;
+        events.forEach(e => { if (e.type === 'PushEvent' && e.created_at.includes(todayStr)) todayVal += (e.payload.size || 0); });
+        const tIdx = allDays.findIndex(d => d.date === todayStr);
+        if (tIdx !== -1) allDays[tIdx].contributionCount = Math.max(allDays[tIdx].contributionCount, todayVal);
+        else if (todayVal > 0) allDays.push({ date: todayStr, contributionCount: todayVal });
       }
 
       if (allDays.length === 0) {
