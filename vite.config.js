@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
+// Optimized for Netlify Deployment
 export default defineConfig({
   plugins: [react()],
-  base: '/Commit-Count/',
+  // Remove base path so assets load from root /
 })
