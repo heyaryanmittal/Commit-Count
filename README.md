@@ -24,8 +24,17 @@ VITE_GITHUB_TOKEN=your_token_here
 
 *Note: Ensure your token has `public_repo` (or read) permissions at minimum for public profile scanning.*
 
-## 🔒 Security
-The `.env` file is included in `.gitignore` to prevent credential exposure. When deploying (e.g., to Netlify or Vercel), ensure you set `VITE_GITHUB_TOKEN` in your environment variables dashboard.
+## 🔒 Deployment & Security
+This project is configured for **GitHub Pages** with integrated **GitHub Actions** for automatic deployment on every push.
+
+### Setting up Secrets
+To ensure the dashboard functions in production:
+1.  Go to your repository on GitHub.
+2.  Navigate to **Settings > Secrets and variables > Actions**.
+3.  Add a **New repository secret**:
+    -   Name: `VITE_GITHUB_TOKEN`
+    -   Value: `your_token`
+4.  The `.env` file is excluded from git via `.gitignore` for local safety.
 
 ---
-© 2026 Commit Count Analytics Engine. Designed for precision.
+© 2026 Commit Count Analytics. Deployed via GitHub Pages.
