@@ -255,7 +255,7 @@ function App() {
           <input
             type="text"
             className="search-field"
-            placeholder="Username (e.g. heyaryanmittal)"
+            placeholder="Github Username"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
