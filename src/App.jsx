@@ -32,7 +32,9 @@ function App() {
     setLoading(true);
     setError(null);
     setCustomStats(null);
-    const token = import.meta.env.VITE_GITHUB_TOKEN;
+
+    // Endpoint for Netlify Proxy
+    const PROXY_BASE = '/.netlify/functions/github-proxy';
 
     try {
       const currentY = new Date().getFullYear();
@@ -58,12 +60,8 @@ function App() {
             }
           }
         `;
-        const response = await fetch('https://api.github.com/graphql', {
+        const response = await fetch(`${PROXY_BASE}/graphql`, {
           method: 'POST',
-          headers: {
-            'Authorization': `bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({
             query,
             variables: { login: user, from: fromDate, to: toDate },
@@ -73,12 +71,12 @@ function App() {
         if (!response.ok) {
           if (response.status === 401) throw new Error('Invalid or expired GitHub Token');
           if (response.status === 404) throw new Error('GitHub User not found');
-          throw new Error('GitHub infrastructure error');
+          throw new Error('Projected infrastructure error or rate limit');
         }
 
         const res = await response.json();
         if (res.errors) throw new Error(res.errors[0].message);
-        if (!res.data.user) throw new Error('Target profile not identified');
+        if (!res.data || !res.data.user) throw new Error('Target profile not identified');
 
         return res.data.user.contributionsCollection.contributionCalendar.weeks
           .flatMap(w => w.contributionDays);
@@ -87,14 +85,11 @@ function App() {
       const results = await Promise.all(yearsNeeded.map(y => fetchYear(y)));
       let allDays = results.flat();
 
-      // Real-Time Patch: Fetch recent events to catch very new commits
+      // Real-Time Patch via Proxy
       try {
-        const eventsRes = await fetch(`https://api.github.com/users/${user}/events/public?per_page=30`, {
-          headers: { 'Authorization': `bearer ${token}` }
-        });
+        const eventsRes = await fetch(`${PROXY_BASE}/users/${user}/events/public?per_page=30`);
         if (eventsRes.ok) {
           const events = await eventsRes.json();
-          // Use Local date string YYYY-MM-DD
           const todayStr = new Date().toLocaleDateString('en-CA');
           let todayCommits = 0;
 
@@ -104,7 +99,6 @@ function App() {
             }
           });
 
-          // Update today's entry if events show more commits than GraphQL
           const todayIdx = allDays.findIndex(d => d.date === todayStr);
           if (todayIdx !== -1) {
             allDays[todayIdx].contributionCount = Math.max(allDays[todayIdx].contributionCount, todayCommits);
