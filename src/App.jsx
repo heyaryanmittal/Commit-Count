@@ -5,6 +5,8 @@ import {
   Flame, Award, BarChart3, Clock, Share2, Download, Zap, TrendingDown, Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function App() {
   const [username, setUsername] = useState('');
@@ -92,11 +94,12 @@ function App() {
         });
         if (eventsRes.ok) {
           const events = await eventsRes.json();
-          const todayStr = new Date().toISOString().split('T')[0];
+          // Use Local date string YYYY-MM-DD
+          const todayStr = new Date().toLocaleDateString('en-CA');
           let todayCommits = 0;
           
           events.forEach(ev => {
-            if (ev.type === 'PushEvent' && ev.created_at.startsWith(todayStr)) {
+            if (ev.type === 'PushEvent' && ev.created_at.includes(todayStr)) {
               todayCommits += (ev.payload.size || 0);
             }
           });
@@ -138,8 +141,8 @@ function App() {
       }
       if (tempStreak > longestStreak) longestStreak = tempStreak;
 
-      const todayStr = new Date().toISOString().split('T')[0];
-      const latestDataIndex = sortedDays.findIndex(d => d.date === todayStr);
+      const currentDayStr = new Date().toLocaleDateString('en-CA');
+      const latestDataIndex = sortedDays.findIndex(d => d.date === currentDayStr);
       let searchIndex = latestDataIndex === -1 ? sortedDays.length - 1 : latestDataIndex;
 
       while (searchIndex >= 0 && sortedDays[searchIndex].contributionCount > 0) {
@@ -197,8 +200,8 @@ function App() {
       start.setFullYear(today.getFullYear() - (i + 1));
       start.setDate(start.getDate() + 1);
 
-      const sStr = start.toISOString().split('T')[0];
-      const eStr = end.toISOString().split('T')[0];
+      const sStr = start.toLocaleDateString('en-CA');
+      const eStr = end.toLocaleDateString('en-CA');
 
       const yearTotal = data.days
         .filter(d => d.date >= sStr && d.date <= eStr)
@@ -234,6 +237,54 @@ function App() {
       activeDays,
       range: `${new Date(fromDate).toLocaleDateString()} - ${new Date(toDate).toLocaleDateString()}`
     });
+  };
+
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleShare = async () => {
+    const shareData = {
+      title: 'GitHub Commit Analytics',
+      text: `Check out my GitHub contribution stats for ${username || 'me'}!`,
+      url: window.location.href
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        alert('Link copied to clipboard!');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const element = document.getElementById('results-printable');
+    if (!element) return;
+    setIsGenerating(true);
+
+    try {
+       // Ensure smooth fonts and colors in the take
+       const canvas = await html2canvas(element, {
+         scale: 2,
+         useCORS: true,
+         backgroundColor: '#24021d',
+         logging: false
+       });
+       const imgData = canvas.toDataURL('image/png');
+       const pdf = new jsPDF('p', 'mm', 'a4');
+       const pdfWidth = pdf.internal.pageSize.getWidth();
+       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+       
+       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+       pdf.save(`${username || 'github'}-analytics.pdf`);
+    } catch (err) {
+       console.error("PDF generation failed:", err);
+       alert("Failed to generate PDF. Check console for details.");
+    } finally {
+       setIsGenerating(false);
+    }
   };
 
   return (
@@ -294,9 +345,11 @@ function App() {
         {data && !loading && (
           <motion.div
             key="results"
+            id="results-printable"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6 }}
+            style={{ padding: '20px', borderRadius: '30px' }}
           >
             <div style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'center' }}>
                <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.4rem 1rem', borderRadius: '50px', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -439,8 +492,18 @@ function App() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '2rem' }}>
           <p>© 2026 GitHub Commit Analytics. All rights reserved.</p>
           <div style={{ display: 'flex', gap: '2rem' }}>
-            <span style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Share2 size={16} /> Share</span>
-            <span style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Download size={16} /> Export</span>
+            <span 
+              onClick={handleShare}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <Share2 size={16} /> Share
+            </span>
+            <span 
+              onClick={handleExportPDF}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: isGenerating ? 0.6 : 1 }}
+            >
+              <Download size={16} /> {isGenerating ? 'Exporting...' : 'Export PDF'}
+            </span>
           </div>
         </div>
       </footer>
