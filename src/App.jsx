@@ -33,8 +33,14 @@ function App() {
     setError(null);
     setCustomStats(null);
 
-    // Endpoint for Netlify Proxy
+    // Smart Environment Handling
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const localToken = import.meta.env.VITE_GITHUB_TOKEN;
     const PROXY_BASE = '/.netlify/functions/github-proxy';
+    
+    // Logic: In development, we use the local token if it exists. 
+    // In production (Netlify), we use the zero-knowledge proxy.
+    const useDirectFetch = isDev && localToken;
 
     try {
       const currentY = new Date().getFullYear();
@@ -60,8 +66,17 @@ function App() {
             }
           }
         `;
-        const response = await fetch(`${PROXY_BASE}/graphql`, {
+        
+        // Construct Endpoint
+        const targetUrl = useDirectFetch ? "https://api.github.com/graphql" : `${PROXY_BASE}/graphql`;
+        const headers = { "Content-Type": "application/json" };
+        if (useDirectFetch) {
+          headers["Authorization"] = `bearer ${localToken}`;
+        }
+
+        const response = await fetch(targetUrl, {
           method: 'POST',
+          headers,
           body: JSON.stringify({
             query,
             variables: { login: user, from: fromDate, to: toDate },
@@ -69,9 +84,9 @@ function App() {
         });
 
         if (!response.ok) {
-          if (response.status === 401) throw new Error('Invalid or expired GitHub Token');
+          if (response.status === 401) throw new Error('Invalid or Expired GitHub Token');
           if (response.status === 404) throw new Error('GitHub User not found');
-          throw new Error('Projected infrastructure error or rate limit');
+          throw new Error(`Fetch failed: ${response.status}`);
         }
 
         const res = await response.json();
@@ -85,9 +100,15 @@ function App() {
       const results = await Promise.all(yearsNeeded.map(y => fetchYear(y)));
       let allDays = results.flat();
 
-      // Real-Time Patch via Proxy
+      // Live Patch Section
       try {
-        const eventsRes = await fetch(`${PROXY_BASE}/users/${user}/events/public?per_page=30`);
+        const eventsUrl = useDirectFetch 
+          ? `https://api.github.com/users/${user}/events/public?per_page=30` 
+          : `${PROXY_BASE}/users/${user}/events/public?per_page=30`;
+        
+        const eventsHeaders = useDirectFetch ? { "Authorization": `bearer ${localToken}` } : {};
+        const eventsRes = await fetch(eventsUrl, { headers: eventsHeaders });
+        
         if (eventsRes.ok) {
           const events = await eventsRes.json();
           const todayStr = new Date().toLocaleDateString('en-CA');
@@ -106,10 +127,12 @@ function App() {
             allDays.push({ date: todayStr, contributionCount: todayCommits });
           }
         }
-      } catch (e) { console.warn("Live patch failed", e); }
+      } catch (e) {
+        console.warn("Live patch inhibited", e);
+      }
 
       if (allDays.length === 0) {
-        throw new Error('User not found or has no contribution history');
+        throw new Error('User has no contribution history available');
       }
 
       const dateMap = new Map();
@@ -120,7 +143,7 @@ function App() {
       const sortedDays = Array.from(dateMap.values()).sort((a, b) => new Date(a.date) - new Date(b.date));
       const totalContributions = sortedDays.reduce((sum, d) => sum + (d.contributionCount || 0), 0);
 
-      // Calculate Streaks
+      // Streaks
       let longestStreak = 0;
       let currentStreak = 0;
       let tempStreak = 0;
@@ -219,10 +242,7 @@ function App() {
 
   const handleCustomSearch = () => {
     if (!fromDate || !toDate || !data) return;
-
-    // Exact string comparison for 100% precision
     const filteredDays = data.days.filter(d => d.date >= fromDate && d.date <= toDate);
-
     const total = filteredDays.reduce((sum, d) => sum + (d.contributionCount || 0), 0);
     const activeDays = filteredDays.filter(d => d.contributionCount > 0).length;
 
@@ -235,63 +255,25 @@ function App() {
 
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const generatePDFBlob = async () => {
-    const element = document.getElementById('results-printable');
-    if (!element) return null;
-
-    // Capture state
-    const originalScrollY = window.scrollY;
-    window.scrollTo(0, 0);
-    element.classList.add('pdf-export-mode');
-
-    // Ensure all critical fonts are ready before we snapshot the canvas
-    await document.fonts.ready;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#24021d',
-        logging: false,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-        scrollY: 0,
-        x: 0,
-        y: 0
-      });
-
-      element.classList.remove('pdf-export-mode');
-      const imgData = canvas.toDataURL('image/png', 1.0);
-      
-      // Calculate dynamic dimensions for a perfect seamless document
-      const pdf = new jsPDF({
-        orientation: canvas.width > canvas.height ? 'l' : 'p',
-        unit: 'px',
-        format: [canvas.width, canvas.height]
-      });
-
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-      window.scrollTo(0, originalScrollY);
-      return pdf.output('blob');
-    } catch (err) {
-      window.scrollTo(0, originalScrollY);
-      console.error("PDF generation failed:", err);
-      return null;
-    }
-  };
-
-
   const handleExportPDF = async () => {
     setIsGenerating(true);
-    const blob = await generatePDFBlob();
-    if (blob) {
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${username || 'github'}-analytics.pdf`;
-      link.click();
-    } else {
-      alert("Failed to generate PDF.");
+    const element = document.getElementById('results-printable');
+    if (!element) return;
+
+    window.scrollTo(0, 0);
+    element.classList.add('pdf-export-mode');
+    await document.fonts.ready;
+    await new Promise(r => setTimeout(r, 400));
+
+    try {
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#0f0111' });
+      element.classList.remove('pdf-export-mode');
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: canvas.width > canvas.height ? 'l' : 'p', unit: 'px', format: [canvas.width, canvas.height] });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`${username || 'github'}-analytics.pdf`);
+    } catch (err) {
+      console.error(err);
     }
     setIsGenerating(false);
   };
@@ -299,218 +281,143 @@ function App() {
   return (
     <div id="root">
       <div id="results-printable" style={{ width: '100%', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Motion.div
-        className="title-block"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
-          <Github size={50} style={{ color: 'var(--plum-vibrant)' }} />
-        </div>
-        <h1 className="title-main">Commit Count</h1>
-        <p className="subtitle-main">Fast, simple GitHub analytics and streak tracking</p>
-
-        <form onSubmit={handleSearch} className="search-wrapper">
-          <div className="search-input-container">
-            <Search size={22} className="search-icon-inner" />
-            <input
-              type="text"
-              className="search-field"
-              placeholder="Github Username"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <Motion.div className="title-block" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
+            <Github size={50} style={{ color: 'var(--plum-vibrant)' }} />
           </div>
-          <button type="submit" className="btn-premium" disabled={loading}>
-            {loading ? <span className="loader-hex" style={{ width: '20px', height: '20px' }}></span> : 'Check Stats'}
-          </button>
-        </form>
-      </Motion.div>
+          <h1 className="title-main">Commit Count</h1>
+          <p className="subtitle-main">Real-time GitHub analytics and streak tracking</p>
 
-      <AnimatePresence mode="wait">
-        {error && (
-          <Motion.div
-            className="error-banner"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <Zap size={20} className="error-icon" />
-            <span className="error-text">{error}</span>
-          </Motion.div>
-        )}
+          <form onSubmit={handleSearch} className="search-wrapper">
+            <div className="search-input-container">
+              <Search size={22} className="search-icon-inner" />
+              <input type="text" className="search-field" placeholder="Username" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            </div>
+            <button type="submit" className="btn-premium" disabled={loading}>
+              {loading ? <span className="loader-hex" style={{ width: '20px', height: '20px' }}></span> : 'Check Stats'}
+            </button>
+          </form>
+        </Motion.div>
 
-        {loading && (
-          <Motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ padding: '6rem 0', textAlign: 'center' }}
-          >
-            <div style={{ display: 'inline-block' }}>
+        <AnimatePresence mode="wait">
+          {error && (
+            <Motion.div className="error-banner" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <Zap size={20} /> <span className="error-text">{error}</span>
+            </Motion.div>
+          )}
+
+          {loading && (
+            <div style={{ textAlign: 'center', padding: '6rem 0' }}>
               <div className="loader-hex"></div>
+              <p style={{ color: '#94a3b8', marginTop: '2rem' }}>Fetching Records...</p>
             </div>
-            <p style={{ color: '#9ca3af', marginTop: '2rem', fontSize: '1.1rem' }}>Updating records...</p>
-          </Motion.div>
-        )}
+          )}
 
-        {data && !loading && (
-          <Motion.div
-            key="results"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6 }}
-            style={{ padding: '20px', borderRadius: '30px' }}
-          >
-            <div className="status-badge-container">
-              <div className="status-badge">
-                <Motion.div
-                  animate={{ scale: [1, 1.25, 1], opacity: [0.6, 1, 0.6] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="status-dot"
-                />
-                <span className="status-text">Real-time records synchronized • Last check at {data.lastUpdated}</span>
-              </div>
-            </div>
-
-            <div className="stats-container">
-              <div className="data-card">
-                <div className="data-icon"><BarChart3 size={24} /></div>
-                <div className="data-label">Total Commits</div>
-                <div className="data-value">{(data.totalContributions || 0).toLocaleString()}</div>
-                <p className="data-sub">All-time activity found</p>
+          {data && !loading && (
+            <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '20px' }}>
+              <div className="status-badge-container">
+                <div className="status-badge">
+                  <div className="status-dot"></div>
+                  <span className="status-text">Synchronized via {window.location.hostname === 'localhost' ? 'Local Connection' : 'Proxy Server'}</span>
+                </div>
               </div>
 
-              <div className="data-card highlight-border">
-                <div className="data-icon"><Flame size={24} /></div>
-                <div className="data-label">Best Streak</div>
-                <div className="data-value">{data.longestStreak}</div>
-                <p className="data-sub">Maximum consecutive days</p>
+              <div className="stats-container">
+                <div className="data-card">
+                  <div className="data-icon"><BarChart3 size={24} /></div>
+                  <div className="data-label">Total Commits</div>
+                  <div className="data-value">{data.totalContributions.toLocaleString()}</div>
+                </div>
+                <div className="data-card highlight-border">
+                  <div className="data-icon"><Flame size={24} /></div>
+                  <div className="data-label">Best Streak</div>
+                  <div className="data-value">{data.longestStreak}</div>
+                </div>
+                <div className="data-card">
+                  <div className="data-icon"><Award size={24} /></div>
+                  <div className="data-label">Current Streak</div>
+                  <div className="data-value">{data.currentStreak}</div>
+                  <p className="data-sub" style={{ color: 'var(--plum-vibrant)' }}>{data.currentStreakRange}</p>
+                </div>
               </div>
 
-              <div className="data-card">
-                <div className="data-icon"><Award size={24} /></div>
-                <div className="data-label">Current Streak</div>
-                <div className="data-value">{data.currentStreak}</div>
-                <p className="data-sub" style={{ color: 'var(--plum-vibrant)', fontWeight: 800 }}>{data.currentStreakRange}</p>
-              </div>
-            </div>
-
-            <div className="detail-grid">
-              <div className="detail-card">
-                <div className="detail-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <Activity size={20} />
-                    <span>Yearly Comparison</span>
-                  </div>
-                  <div style={{ fontSize: '0.65rem', background: 'rgba(161, 11, 86, 0.1)', padding: '0.3rem 0.8rem', borderRadius: '50px', color: '#9ca3af' }}>
-                    Active since {new Date(data.days[0].date).getFullYear()}
+              <div className="detail-grid">
+                <div className="detail-card">
+                  <div className="detail-title"><Activity size={20} /> Yearly Comparison</div>
+                  <div className="velocity-display">
+                    <div className="v-item">
+                      <span className="v-label-small">This Year</span>
+                      <span className="v-val-large">{rollingStats[0]?.total.toLocaleString()}</span>
+                    </div>
+                    <div className="v-item">
+                      <span className="v-label-small">Last Year</span>
+                      <span className="v-val-large">{rollingStats[1]?.total.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="velocity-display">
-                  <div className="v-item">
-                    <span className="v-label-small">This Year</span>
-                    <span className="v-label-micro">{rollingStats[0]?.range}</span>
-                    <span className="v-val-large" style={{ marginTop: '0.5rem' }}>{(rollingStats[0]?.total || 0).toLocaleString()}</span>
+                <div className="detail-card">
+                  <div className="detail-title"><Clock size={20} /> Weekly Patterns</div>
+                  <div className="day-strip">
+                    {data.dayDist.map((val, i) => (
+                      <div key={i} className="day-bar" style={{ height: `${(val / (Math.max(...data.dayDist) || 1)) * 100}%` }}></div>
+                    ))}
                   </div>
-                  <div style={{ width: '1px', height: '60px', background: 'var(--plum-mid)' }}></div>
-                  <div className="v-item">
-                    <span className="v-label-small">Last Year</span>
-                    <span className="v-label-micro">{rollingStats[1]?.range}</span>
-                    <span className="v-val-large" style={{ marginTop: '0.5rem' }}>{(rollingStats[1]?.total || 0).toLocaleString()}</span>
-                  </div>
+                  <div className="day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
                 </div>
-                <div style={{ marginTop: '1.5rem', color: '#9ca3af', fontSize: '0.9rem' }}>
-                  {rollingStats[0]?.total > rollingStats[1]?.total ? (
-                    <span style={{ color: '#10b981' }}><TrendingUp size={14} /> +{((rollingStats[0]?.total - rollingStats[1]?.total) / (rollingStats[1]?.total || 1) * 100).toFixed(1)}% growth</span>
-                  ) : (
-                    <span style={{ color: '#ef4444' }}><TrendingDown size={14} /> -{((rollingStats[1]?.total - rollingStats[0]?.total) / (rollingStats[1]?.total || 1) * 100).toFixed(1)}% drop</span>
+              </div>
+
+              {/* Custom Date Filter Section */}
+              <div className="filter-section">
+                <h3 className="filter-title">Custom Date Filter</h3>
+                <div className="input-block">
+                  <div className="input-group">
+                    <label className="label-text">FROM DATE</label>
+                    <input type="date" className="date-input-field" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  </div>
+                  <div className="input-group">
+                    <label className="label-text">TO DATE</label>
+                    <input type="date" className="date-input-field" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                  </div>
+                  <button className="btn-premium" onClick={handleCustomSearch}>
+                    <Filter size={18} /> Apply Filter
+                  </button>
+                </div>
+
+                <AnimatePresence>
+                  {customStats && (
+                    <Motion.div
+                      className="query-grid"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                    >
+                      <div className="query-box">
+                        <div className="label-text">COMMITS FOUND</div>
+                        <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.total.toLocaleString()}</div>
+                      </div>
+                      <div className="query-box">
+                        <div className="label-text">ACTIVE DAYS</div>
+                        <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.activeDays}</div>
+                      </div>
+                      <div className="query-box">
+                        <div className="label-text">DAY AVERAGE</div>
+                        <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.activeDays > 0 ? (customStats.total / customStats.activeDays).toFixed(2) : "0.00"}</div>
+                      </div>
+                    </Motion.div>
                   )}
-                </div>
+                </AnimatePresence>
               </div>
+            </Motion.div>
+          )}
+        </AnimatePresence>
 
-              <div className="detail-card">
-                <div className="detail-title">
-                  <Clock size={20} />
-                  <span>Busiest Day</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                  <div style={{ background: 'var(--plum-bright)', padding: '0.5rem 1.5rem', borderRadius: '12px', fontWeight: 800 }}>{data.bestDay}</div>
-                  <p style={{ margin: 0, color: '#d1d5db' }}>Most active day of the week</p>
-                </div>
-                <div className="day-strip">
-                  {data.dayDist.map((val, i) => (
-                    <div
-                      key={i}
-                      className="day-bar"
-                      style={{
-                        height: `${(val / (Math.max(...data.dayDist) || 1)) * 100}%`,
-                        backgroundColor: i === (new Date().getDay()) ? 'var(--plum-vibrant)' : 'var(--plum-mid)'
-                      }}
-                    ></div>
-                  ))}
-                </div>
-                <div className="day-labels">
-                  <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="filter-section">
-              <h3 className="filter-title">Custom Date Filter</h3>
-              <div className="input-block">
-                <div className="input-group">
-                  <label className="label-text">FROM DATE</label>
-                  <input type="date" className="date-input-field" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                </div>
-                <div className="input-group">
-                  <label className="label-text">TO DATE</label>
-                  <input type="date" className="date-input-field" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                </div>
-                <button className="btn-premium" onClick={handleCustomSearch}>
-                  <Filter size={18} /> Apply Filter
-                </button>
-              </div>
-
-              <AnimatePresence>
-                {customStats && (
-                <Motion.div
-                    className="query-grid"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                  >
-                    <div className="query-box">
-                      <div className="label-text">COMMITS FOUND</div>
-                      <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.total.toLocaleString()}</div>
-                    </div>
-                    <div className="query-box">
-                      <div className="label-text">ACTIVE DAYS</div>
-                      <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.activeDays}</div>
-                    </div>
-                    <div className="query-box">
-                      <div className="label-text">DAY AVERAGE</div>
-                      <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.activeDays > 0 ? (customStats.total / customStats.activeDays).toFixed(2) : "0.00"}</div>
-                    </div>
-                  </Motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </Motion.div>
-        )}
-      </AnimatePresence>
-
-      <footer style={{ marginTop: 'auto', paddingBottom: '3rem', borderTop: '1px solid var(--plum-mid)', paddingTop: '3rem', color: '#6b7280' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '2rem' }}>
-          <p>© 2026 GitHub Commit Analytics. All rights reserved.</p>
-          <div style={{ display: 'flex', gap: '2rem' }}>
-            <span
-              onClick={handleExportPDF}
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: isGenerating ? 0.6 : 1 }}
-            >
+        <footer style={{ marginTop: 'auto', paddingTop: '4rem', paddingBottom: '3rem', borderTop: '1px solid var(--plum-mid)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '0.9rem' }}>
+            <p>© 2026 Commit Count Analytics.</p>
+            <span onClick={handleExportPDF} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Download size={16} /> {isGenerating ? 'Exporting...' : 'Export PDF'}
             </span>
           </div>
-        </div>
-      </footer>
+        </footer>
       </div>
     </div>
   );
