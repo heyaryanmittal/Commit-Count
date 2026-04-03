@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import './App.css';
 import {
-  Search, Github, Calendar, Activity, TrendingUp, Filter,
-  Flame, Award, BarChart3, Clock, Share2, Download, Zap, TrendingDown, Info
+  Search, Github, Activity, TrendingUp, Filter,
+  Flame, Award, BarChart3, Clock, Download, Zap, TrendingDown
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -305,7 +305,7 @@ function App() {
   return (
     <div id="root">
       <div id="results-printable" style={{ width: '100%', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <motion.div
+        <Motion.div
         className="title-block"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -332,22 +332,22 @@ function App() {
             {loading ? <span className="loader-hex" style={{ width: '20px', height: '20px' }}></span> : 'Check Stats'}
           </button>
         </form>
-      </motion.div>
+      </Motion.div>
 
       <AnimatePresence mode="wait">
         {error && (
-          <motion.div
+          <Motion.div
             className="error-banner"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
           >
             <Zap size={20} className="error-icon" />
             <span className="error-text">{error}</span>
-          </motion.div>
+          </Motion.div>
         )}
 
         {loading && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             style={{ padding: '6rem 0', textAlign: 'center' }}
@@ -356,11 +356,11 @@ function App() {
               <div className="loader-hex"></div>
             </div>
             <p style={{ color: '#9ca3af', marginTop: '2rem', fontSize: '1.1rem' }}>Updating records...</p>
-          </motion.div>
+          </Motion.div>
         )}
 
         {data && !loading && (
-          <motion.div
+          <Motion.div
             key="results"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -369,7 +369,7 @@ function App() {
           >
             <div className="status-badge-container">
               <div className="status-badge">
-                <motion.div
+                <Motion.div
                   animate={{ scale: [1, 1.25, 1], opacity: [0.6, 1, 0.6] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                   className="status-dot"
@@ -479,7 +479,7 @@ function App() {
 
               <AnimatePresence>
                 {customStats && (
-                  <motion.div
+                <Motion.div
                     className="query-grid"
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -496,11 +496,11 @@ function App() {
                       <div className="label-text">DAY AVERAGE</div>
                       <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customStats.activeDays > 0 ? (customStats.total / customStats.activeDays).toFixed(2) : "0.00"}</div>
                     </div>
-                  </motion.div>
+                  </Motion.div>
                 )}
               </AnimatePresence>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
