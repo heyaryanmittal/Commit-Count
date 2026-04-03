@@ -1,21 +1,21 @@
 /**
  * Netlify Function: GitHub GraphQL Proxy
  * 
- * Securely handles GitHub API requests using a protected GITHUB_TOKEN
- * that is never exposed to the client-side bundle.
+ * Securely handles GitHub API requests using a protected GITHUB_TOKEN.
+ * Recognizes either GITHUB_TOKEN or VITE_GITHUB_TOKEN from environment.
  */
 
 export const handler = async (event) => {
-  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+  // Support both key styles for compatibility
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.VITE_GITHUB_TOKEN;
 
   if (!GITHUB_TOKEN) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "GITHUB_TOKEN is not configured in Netlify Environment Variables." }),
+      body: JSON.stringify({ error: "No GitHub token found in Netlify Environment Variables." }),
     };
   }
 
-  // Only allow POST requests (for GraphQL) or GET requests (for Events)
   if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
@@ -47,7 +47,7 @@ export const handler = async (event) => {
       body: JSON.stringify(data),
       headers: {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*", // Optional: restrict to your domain in production
+        "Access-Control-Allow-Origin": "*",
       },
     };
   } catch (error) {
