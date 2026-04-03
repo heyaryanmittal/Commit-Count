@@ -318,14 +318,16 @@ function App() {
         <p className="subtitle-main">Fast, simple GitHub analytics and streak tracking</p>
 
         <form onSubmit={handleSearch} className="search-wrapper">
-          <Search size={22} className="search-icon-fixed" />
-          <input
-            type="text"
-            className="search-field"
-            placeholder="Github Username"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          <div className="search-input-container">
+            <Search size={22} className="search-icon-inner" />
+            <input
+              type="text"
+              className="search-field"
+              placeholder="Github Username"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
           <button type="submit" className="btn-premium" disabled={loading}>
             {loading ? <span className="loader-hex" style={{ width: '20px', height: '20px' }}></span> : 'Check Stats'}
           </button>
@@ -335,13 +337,12 @@ function App() {
       <AnimatePresence mode="wait">
         {error && (
           <motion.div
-            className="error-message"
+            className="error-banner"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            style={{ color: '#fecaca', background: 'rgba(161, 11, 86, 0.1)', padding: '1.5rem', borderRadius: '20px', border: '1px solid var(--plum-bright)', maxWidth: '600px', margin: '2rem auto' }}
           >
-            <Zap size={20} style={{ marginRight: '10px', verticalAlign: 'middle' }} />
-            {error}
+            <Zap size={20} className="error-icon" />
+            <span className="error-text">{error}</span>
           </motion.div>
         )}
 
@@ -366,14 +367,14 @@ function App() {
             transition={{ duration: 0.6 }}
             style={{ padding: '20px', borderRadius: '30px' }}
           >
-            <div style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'center' }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.4rem 1rem', borderRadius: '50px', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div className="status-badge-container">
+              <div className="status-badge">
                 <motion.div
                   animate={{ scale: [1, 1.25, 1], opacity: [0.6, 1, 0.6] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}
+                  className="status-dot"
                 />
-                <span>Real-time records synchronized • Last check at {data.lastUpdated}</span>
+                <span className="status-text">Real-time records synchronized • Last check at {data.lastUpdated}</span>
               </div>
             </div>
 
@@ -454,7 +455,7 @@ function App() {
                     ></div>
                   ))}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: '0.7rem', color: '#6b7280' }}>
+                <div className="day-labels">
                   <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
                 </div>
               </div>
