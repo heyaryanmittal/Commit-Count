@@ -27,9 +27,22 @@ function App() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  const fetchStats = async (user) => {
+  // Real-Time Auto-Sync Effect
+  useEffect(() => {
+    if (!username || error) return;
+    
+    // Initial fetch skip as it's triggered by search
+    const interval = setInterval(() => {
+      console.log(`Auto-syncing data for ${username}...`);
+      fetchStats(username, true); // true = silent update
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [username, error]);
+
+  const fetchStats = async (user, isSilent = false) => {
     if (!user) return;
-    setLoading(true);
+    if (!isSilent) setLoading(true);
     setError(null);
     setCustomStats(null);
 
@@ -317,8 +330,12 @@ function App() {
             <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '20px' }}>
               <div className="status-badge-container">
                 <div className="status-badge">
-                  <div className="status-dot"></div>
-                  <span className="status-text">Synchronized via {window.location.hostname === 'localhost' ? 'Local Connection' : 'Proxy Server'}</span>
+                  <Motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.6, 1, 0.6] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="status-dot"
+                  />
+                  <span className="status-text">Real-time records synchronized • Last check at {data.lastUpdated}</span>
                 </div>
               </div>
 
@@ -344,25 +361,39 @@ function App() {
               <div className="detail-grid">
                 <div className="detail-card">
                   <div className="detail-title"><Activity size={20} /> Yearly Comparison</div>
-                  <div className="velocity-display">
-                    <div className="v-item">
-                      <span className="v-label-small">This Year</span>
-                      <span className="v-val-large">{rollingStats[0]?.total.toLocaleString()}</span>
+                  <div className="velocity-display" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1.5rem', width: '100%' }}>
+                    <div className="v-item-box" style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)', padding: '1.5rem', borderRadius: '18px' }}>
+                      <span className="v-label-small" style={{ display: 'block', marginBottom: '0.25rem' }}>This Year</span>
+                      <span className="v-label-micro" style={{ display: 'block', color: 'rgba(255,255,255,0.5)' }}>{rollingStats[0]?.range}</span>
+                      <span className="v-val-large" style={{ display: 'block', marginTop: '1rem' }}>{rollingStats[0]?.total.toLocaleString()}</span>
                     </div>
-                    <div className="v-item">
-                      <span className="v-label-small">Last Year</span>
-                      <span className="v-val-large">{rollingStats[1]?.total.toLocaleString()}</span>
+                    <div className="v-item-box" style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)', padding: '1.5rem', borderRadius: '18px' }}>
+                      <span className="v-label-small" style={{ display: 'block', marginBottom: '0.25rem' }}>Last Year</span>
+                      <span className="v-label-micro" style={{ display: 'block', color: 'rgba(255,255,255,0.5)' }}>{rollingStats[1]?.range}</span>
+                      <span className="v-val-large" style={{ display: 'block', marginTop: '1rem' }}>{rollingStats[1]?.total.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
                 <div className="detail-card">
                   <div className="detail-title"><Clock size={20} /> Weekly Patterns</div>
-                  <div className="day-strip">
-                    {data.dayDist.map((val, i) => (
-                      <div key={i} className="day-bar" style={{ height: `${(val / (Math.max(...data.dayDist) || 1)) * 100}%` }}></div>
-                    ))}
+                  <div className="chart-box-outer" style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)', padding: '1.5rem', borderRadius: '18px' }}>
+                    <div className="day-strip">
+                      {data.dayDist.map((val, i) => (
+                        <div
+                          key={i}
+                          className="day-bar"
+                          style={{
+                            height: `${Math.max((val / (Math.max(...data.dayDist) || 1)) * 100, 10)}%`,
+                            background: 'var(--plum-vibrant)',
+                            boxShadow: '0 4px 15px rgba(255, 0, 127, 0.2)'
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="day-labels">
+                      <span>SUN</span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span>
+                    </div>
                   </div>
-                  <div className="day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
                 </div>
               </div>
 
